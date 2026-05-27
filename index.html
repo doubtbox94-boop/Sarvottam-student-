@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <!-- PWA -->
+  <meta name="theme-color" content="#1a6b2e"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Sarvottam Biology"/>
+  <link rel="apple-touch-icon" href="https://i.ibb.co/PGyz2pcw/file-00000000681c720780b961d468bd980f.png"/>
+  <link rel="manifest" id="pwa-manifest"/>
+  <script>
+  (function(){
+    const m={name:"Sarvottam Biology",short_name:"SarvBio",description:"NEET/Board Doubt Portal",start_url:"./",scope:"./",display:"standalone",orientation:"portrait",background_color:"#f5f7f5",theme_color:"#1a6b2e",icons:[{src:"https://i.ibb.co/PGyz2pcw/file-00000000681c720780b961d468bd980f.png",sizes:"192x192",type:"image/png",purpose:"any maskable"},{src:"https://i.ibb.co/PGyz2pcw/file-00000000681c720780b961d468bd980f.png",sizes:"512x512",type:"image/png",purpose:"any maskable"}]};
+    const b=new Blob([JSON.stringify(m)],{type:'application/manifest+json'});
+    document.getElementById('pwa-manifest').href=URL.createObjectURL(b);
+    if('serviceWorker' in navigator){
+      const sw=`
+self.addEventListener('install',e=>self.skipWaiting());
+self.addEventListener('activate',e=>clients.claim());
+self.addEventListener('fetch',e=>{if(e.request.mode==='navigate'){e.respondWith(fetch(e.request).catch(()=>caches.match('/')))}});
+self.addEventListener('push',e=>{
+  const data=e.data?e.data.json():{};
+  const title=data.notification?.title||'Sarvottam Biology';
+  const body=data.notification?.body||'Nayi update hai!';
+  e.waitUntil(self.registration.showNotification(title,{body,icon:'https://i.ibb.co/PGyz2pcw/file-00000000681c720780b961d468bd980f.png',badge:'https://i.ibb.co/PGyz2pcw/file-00000000681c720780b961d468bd980f.png',data:{url:data.notification?.click_action||self.location.origin}}));
+});
+self.addEventListener('notificationclick',e=>{
+  e.notification.close();
+  const url=e.notification.data?.url||self.location.origin;
+  e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cs=>{
+    for(const c of cs){if(c.url.includes(self.location.origin)&&'focus' in c){c.postMessage({type:'NOTIFICATION_CLICK'});return c.focus();}}
+    if(clients.openWindow)return clients.openWindow(url);
+  }));
+});
+`;
+      const swb=new Blob([sw],{type:'application/javascript'});
+      const swu=URL.createObjectURL(swb);
+      navigator.serviceWorker.register(swu).catch(()=>{});
+    }
+  })();
+  </script>
+  <title>Sarvottam Biology — Doubt Portal</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, query, where, orderBy, onSnapshot, serverTimestamp, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    /* ── CONFIG ── */
+    const firebaseConfig = {
+      apiKey: "AIzaSyB-bWQssVbu5u7QPDo_x6GQf2zOR5jXnJw",
+      authDomain: "sarvottam-biology-42d57.firebaseapp.com",
+      projectId: "sarvottam-biology-42d57",
+      storageBucket: "sarvottam-biology-42d57.firebasestorage.app",
+      messagingSenderId: "411892943005",
+      appId: "1:411892943005:web:99574ac4dc7eabb2752c74"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const GROQ_KEY    = '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';
+    const IMGBB_KEY   = 'd3994825a0d5464a7af91361321e9dcb';
+
+    let priority = 'normal';
+    let pendingSubmit = null;
+    let uploadedImageUrl = null;
+
+    /* ── STUDENT SESSION (localStorage) ── */
+    function getStudent() {
+      try { return JSON.parse(localStorage.getItem('sarv_student')); } catch(e) { return null; }
+    }
+    function saveStudent(name, email, whatsapp) {
+      localStorage.setItem('sarv_student', JSON.stringify({ name, email, whatsapp: whatsapp||'', registered_at: new Date().toISOString() }));
+    }
+
+    /* -- SHOW APP SCREEN -- */
+    function showApp(student) {
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('appScreen').style.display   = 'block';
+      document.getElementById('student_name').value        = student.name;
+      document.getElementById('headerStudentName').textContent = student.name;
+      // Webpushr subscribe
+      if(typeof webpushr !== 'undefined'){ try { webpushr('subscribe',{}); } catch(e) {} }
+      loadMyDoubts();
+    }
+
+    /* ── LOGIN / REGISTER ── */
+    window.doStudentLogin = async () => {
+      const name     = document.getElementById('reg-name').value.trim();
+      const email    = document.getElementById('reg-email').value.trim();
+      const whatsapp = document.getElementById('reg-whatsapp').value.trim();
+      if(!name)                              return showToast('Apna naam daalo!','red');
+      if(!email || !email.includes('@'))     return showToast('Valid email daalo!','red');
+      if(!whatsapp || whatsapp.length < 10)  return showToast('Valid WhatsApp number daalo!','red');
+
+      const btn = document.getElementById('reg-btn');
+      btn.disabled = true; btn.textContent = '⏳ Saving...';
+      try {
+        const snap = await getDocs(query(collection(db,'sarv_students'), where('email','==',email)));
+        if(snap.empty) {
+          await addDoc(collection(db,'sarv_students'), { name, email, whatsapp, registered_at: new Date().toISOString() });
+        }
+        saveStudent(name, email, whatsapp);
+        showApp(getStudent());
+      } catch(e) {
+        // Firebase fail ho toh bhi local session save karo
+        saveStudent(name, email, whatsapp);
+        showApp(getStudent());
+      }
+      btn.disabled = false; btn.textContent = 'Continue →';
+    };
+
+    window.doLogout = () => {
+      localStorage.removeItem('sarv_student');
+      document.getElementById('appScreen').style.display   = 'none';
+      document.getElementById('loginScreen').style.display = 'flex';
+      ['reg-name','reg-email','reg-whatsapp'].forEach(id => document.getElementById(id).value = '');
+    };
+
+
+
+    /* -- MY DOUBTS REALTIME -- */
+    let myDoubtsUnsubscribe = null;
+    function loadMyDoubts() {
+      const student = getStudent();
+      if(!student) return;
+      const listEl = document.getElementById('myDoubtsList');
+      if(!listEl) return;
+      if(myDoubtsUnsubscribe) myDoubtsUnsubscribe();
+      listEl.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted);font-size:13px">Loading...</div>';
+      const q = query(collection(db,'sarv_doubts'), where('student_email','==',student.email));
+      myDoubtsUnsubscribe = onSnapshot(q, (snap) => {
+        if(snap.empty) {
+          listEl.innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:40px;margin-bottom:12px">💭</div><div style="font-size:14px;color:var(--muted)">Abhi koi doubt submit nahi kiya</div></div>';
+          return;
+        }
+        const doubts = snap.docs.map(d => ({id:d.id,...d.data()}))
+          .sort((a,b) => (b.timestamp?.seconds||0) - (a.timestamp?.seconds||0));
+        listEl.innerHTML = doubts.map(d => {
+          const isAnswered = d.status === 'answered';
+          const date = d.timestamp ? new Date(d.timestamp.seconds*1000).toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
+          const imgHtml = d.image_url ? '<a href="'+d.image_url+'" target="_blank"><img src="'+d.image_url+'" class="md-img" /></a>' : '';
+          const ansImgHtml = d.answer_image ? '<a href="'+d.answer_image+'" target="_blank"><img src="'+d.answer_image+'" class="md-img" /></a>' : '';
+          const statusBadge = isAnswered ? '<span class="md-status md-ans">✅ Answered</span>' : '<span class="md-status md-pend">⏳ Pending</span>';
+          const ansHtml = isAnswered
+            ? '<div class="md-answer-box"><div class="md-ans-label">📝 Teacher ka Answer</div><div class="md-ans-text">' + (d.answer||'') + '</div>' + ansImgHtml + '</div>'
+            : '<div class="md-pending-msg">⏳ Teacher jaldi jawab denge...</div>';
+          return '<div class="md-card"><div class="md-top"><div class="md-chapter">' + (d.chapter||'') + '</div>' + statusBadge + '</div><div class="md-question">' + (d.question||'') + '</div>' + imgHtml + ansHtml + '<div class="md-date">' + date + '</div></div>';
+        }).join('');
+      });
+    }
+
+    /* ── INIT: check existing session ── */
+    window.addEventListener('DOMContentLoaded', () => {
+      const student = getStudent();
+      if(student && student.name && student.email) {
+        document.getElementById('loginScreen').style.display = 'none';
+        showApp(student);
+      }
+    });
+
+    /* ── NAV ── */
+    window.showSection = (sec, btn) => {
+      document.querySelectorAll('.nav-tab button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('askSection').style.display      = sec==='ask'       ? 'block' : 'none';
+      document.getElementById('myDoubtsSection').style.display = sec==='myDoubts'  ? 'block' : 'none';
+      if(sec==='myDoubts') loadMyDoubts();
+    };
+
+    /* ── PRIORITY ── */
+    window.setPriority = (p) => {
+      priority = p;
+      document.getElementById('pNormal').className = 'prio-btn'+(p==='normal'?' active-normal':'');
+      document.getElementById('pUrgent').className = 'prio-btn'+(p==='urgent'?' active-urgent':'');
+    };
+
+    /* ── IMAGE PREVIEW ── */
+    window.previewImage = (input) => {
+      const file = input.files[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        document.getElementById('previewImg').src = e.target.result;
+        document.getElementById('imgPreview').style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    };
+
+    /* ── IMGBB UPLOAD ── */
+    async function uploadToImgBB(file) {
+      const fd = new FormData(); fd.append('image', file);
+      const res  = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_KEY}`, { method:'POST', body:fd });
+      const data = await res.json();
+      if(data.success) return data.data.url;
+      throw new Error('Image upload failed');
+    }
+
+    /* ── GROQ DUPLICATE CHECK ── */
+    async function checkDuplicate(studentQuestion, answeredDoubts) {
+      if(answeredDoubts.length === 0) return null;
+      const list   = answeredDoubts.map((d,i) => `${i+1}. Q: "${d.question}" A: "${d.answer}"`).join('\n');
+      const prompt = `Student asked: "${studentQuestion}"\n\nAlready answered:\n${list}\n\nIs student's question similar to any? Reply ONLY: MATCH:1 (number) or NO_MATCH. Be strict.`;
+      try {
+        const res  = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${GROQ_KEY}` },
+          body: JSON.stringify({ model:'llama-3.3-70b-versatile', messages:[{role:'user',content:prompt}], max_tokens:20, temperature:0.1 })
+        });
+        const data  = await res.json();
+        const reply = data.choices?.[0]?.message?.content?.trim() || 'NO_MATCH';
+        if(reply.startsWith('MATCH:')) {
+          const idx = parseInt(reply.split(':')[1]) - 1;
+          return answeredDoubts[idx] || null;
+        }
+        return null;
+      } catch(e) { return null; }
+    }
+
+    /* ── Webpushr: Teacher ko notify ── */
+    async function notifyTeacher(studentName, chapter, question, prio) {
+      try {
+        const prioText = prio === 'urgent' ? '🔥 URGENT' : '📘 Normal';
+        await fetch('https://api.webpushr.com/v1/notification/send/all', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'webpushrKey': '1978c6f0d860f9c6069c8166df1a0e92',
+            'webpushrAuthToken': '121605'
+          },
+          body: JSON.stringify({
+            title: `${prioText} — Naya Doubt Aaya!`,
+            message: `${studentName} · ${chapter} — "${question.slice(0,80)}${question.length>80?'...':''}"`,
+            target_url: 'https://doubtbox94-boop.github.io/Sarvottam-panel/',
+            icon: 'https://i.ibb.co/PGyz2pcw/file-00000000681c720780b961d468bd980f.png'
+          })
+        });
+      } catch(e) { console.log('Webpushr notify failed:', e); }
+    }
+
+    /* ── CHAPTERS DATA ── */
+    const CHAPTERS = {
+      "11":["Ch 1 — The Living World","Ch 2 — Biological Classification","Ch 3 — Plant Kingdom","Ch 4 — Animal Kingdom","Ch 5 — Morphology of Flowering Plants","Ch 6 — Anatomy of Flowering Plants","Ch 7 — Structural Organisation in Animals","Ch 8 — Cell: The Unit of Life","Ch 9 — Biomolecules","Ch 10 — Cell Cycle and Cell Division","Ch 11 — Transport in Plants","Ch 12 — Mineral Nutrition","Ch 13 — Photosynthesis in Higher Plants","Ch 14 — Respiration in Plants","Ch 15 — Plant Growth and Development","Ch 16 — Digestion and Absorption","Ch 17 — Breathing and Exchange of Gases","Ch 18 — Body Fluids and Circulation","Ch 19 — Excretory Products and their Elimination","Ch 20 — Locomotion and Movement","Ch 21 — Neural Control and Coordination","Ch 22 — Chemical Coordination and Integration"],
+      "12":["Ch 1 — Reproduction in Organisms","Ch 2 — Sexual Reproduction in Flowering Plants","Ch 3 — Human Reproduction","Ch 4 — Reproductive Health","Ch 5 — Principles of Inheritance and Variation","Ch 6 — Molecular Basis of Inheritance","Ch 7 — Evolution","Ch 8 — Human Health and Disease","Ch 9 — Strategies for Enhancement in Food Production","Ch 10 — Microbes in Human Welfare","Ch 11 — Biotechnology: Principles and Processes","Ch 12 — Biotechnology and its Applications","Ch 13 — Organisms and Populations","Ch 14 — Ecosystem","Ch 15 — Biodiversity and Conservation","Ch 16 — Environmental Issues"]
+    };
+
+    window.updateChapters = () => {
+      const cls = document.getElementById('class_select').value;
+      const sel = document.getElementById('chapter');
+      sel.innerHTML = '<option value="">Chapter select karo</option>';
+      if(cls && CHAPTERS[cls]) CHAPTERS[cls].forEach(ch => { const o=document.createElement('option'); o.value=ch; o.textContent=ch; sel.appendChild(o); });
+      else sel.innerHTML = '<option value="">Pehle class select karo</option>';
+    };
+
+    /* ── SUBMIT DOUBT ── */
+    window.submitDoubt = async () => {
+      const student  = getStudent();
+      const name     = student?.name || document.getElementById('student_name')?.value?.trim() || '';
+      const cls      = document.getElementById('class_select').value;
+      const chapter  = document.getElementById('chapter').value;
+      const question = document.getElementById('question').value.trim();
+      const imgFile  = document.getElementById('imgInput').files[0];
+
+      if(!name)     return showToast('Apna naam daalo!','red');
+      if(!cls)      return showToast('Class select karo!','red');
+      if(!chapter)  return showToast('Chapter select karo!','red');
+      if(!imgFile && (!question || question.length < 10)) return showToast('Doubt likho ya image attach karo!','red');
+
+      const btn     = document.getElementById('submitBtn');
+      const btnText = document.getElementById('btnText');
+      btn.disabled  = true;
+
+      try {
+        if(imgFile) {
+          btnText.textContent = '📷 Image upload ho rahi hai...';
+          uploadedImageUrl = await uploadToImgBB(imgFile);
+        }
+
+        btnText.textContent = '🔍 Checking doubts...';
+        let match = null;
+        try {
+          const snap     = await getDocs(query(collection(db,'sarv_doubts'), where('class','==',cls), where('status','==','answered')));
+          const answered = snap.docs.map(d => ({id:d.id,...d.data()}));
+          match          = await checkDuplicate(question, answered);
+        } catch(dupErr) { match = null; } // duplicate check fail hone pe skip karo
+
+        btn.disabled = false;
+        btnText.textContent = '🚀 Submit My Doubt';
+
+        const student  = getStudent();
+        pendingSubmit  = {
+          student_name:    name,
+          student_email:   student?.email || '',
+          student_whatsapp:student?.whatsapp || '',
+          class:           cls,
+          chapter,
+          question,
+          priority,
+          status:          'pending',
+          answer:          null,
+          image_url:       uploadedImageUrl || null,
+          created_at:      serverTimestamp()
+        };
+
+        if(match) {
+          document.getElementById('formCard').style.display    = 'none';
+          document.getElementById('foundScreen').style.display = 'block';
+          document.getElementById('foundQ').textContent        = '❝ '+match.question+' ❞';
+          document.getElementById('foundA').textContent        = match.answer;
+          document.getElementById('foundMeta').textContent     = 'Class '+match.class+' › '+match.chapter+' · Teacher dwara answer diya gaya';
+        } else {
+          await actuallySubmit();
+        }
+      } catch(e) {
+        btn.disabled = false;
+        btnText.textContent = '🚀 Submit My Doubt';
+        showToast('Kuch galat hua, dobara try karo!','red');
+      }
+    };
+
+    window.foundHelped = () => {
+      document.getElementById('foundScreen').style.display = 'none';
+      pendingSubmit = null; uploadedImageUrl = null;
+      showToast('Bahut accha! Doubt solve ho gaya 🎉','green');
+      resetForm();
+    };
+
+    window.foundNotHelped = async () => {
+      document.getElementById('foundScreen').style.display = 'none';
+      await actuallySubmit();
+    };
+
+    async function actuallySubmit() {
+      if(!pendingSubmit) return;
+      try {
+        const docRef = await addDoc(collection(db,'sarv_doubts'), pendingSubmit);
+        const ticket = docRef.id.slice(-6).toUpperCase();
+        localStorage.setItem('sarv_ticket_'+ticket, docRef.id);
+
+        notifyTeacher(pendingSubmit.student_name, pendingSubmit.chapter, pendingSubmit.question, pendingSubmit.priority);
+
+        document.getElementById('formCard').style.display      = 'none';
+        document.getElementById('foundScreen').style.display   = 'none';
+        document.getElementById('successScreen').style.display = 'block';
+        document.getElementById('ticketNum').textContent       = '#'+ticket;
+        document.getElementById('ticketDetails').innerHTML     = `
+          <div class="ticket-row"><span class="t-label">Student</span><span class="t-val">${esc(pendingSubmit.student_name)}</span></div>
+          <div class="ticket-row"><span class="t-label">Class</span><span class="t-val">Class ${esc(pendingSubmit.class)}</span></div>
+          <div class="ticket-row"><span class="t-label">Chapter</span><span class="t-val">${esc(pendingSubmit.chapter)}</span></div>
+          <div class="ticket-row"><span class="t-label">Priority</span><span class="t-val">${pendingSubmit.priority==='urgent'?'🔥 Urgent':'📘 Normal'}</span></div>
+          ${pendingSubmit.image_url?`<div class="ticket-row"><span class="t-label">Image</span><span class="t-val" style="color:var(--green)">✅ Uploaded</span></div>`:''}
+          <div class="ticket-row"><span class="t-label">Ticket</span><span class="t-val" style="color:var(--accent);font-family:'Syne',sans-serif">#${ticket}</span></div>
+          <div class="ticket-row"><span class="t-label">Status</span><span class="t-val"><span class="status-pending">⏳ Pending</span></span></div>`;
+        pendingSubmit = null; uploadedImageUrl = null;
+        showToast('Doubt submit ho gaya! ✅','green');
+      } catch(e) { showToast('Submit fail hua. Dobara try karo!','red'); }
+    }
+
+    /* ── TRACK DOUBT ── */
+    window.trackDoubt = async () => {
+      const raw = document.getElementById('ticketInput').value.trim().toUpperCase().replace('#','');
+      if(!raw || raw.length < 6) return showToast('Sahi ticket ID daalo!','red');
+
+      const trackBtn = document.getElementById('trackBtn');
+      trackBtn.disabled = true; trackBtn.textContent = '⏳';
+
+      const docId = localStorage.getItem('sarv_ticket_'+raw);
+      document.getElementById('trackResult').style.display = 'block';
+
+      try {
+        let doubtData = null;
+        if(docId) {
+          const snap = await getDoc(doc(db,'sarv_doubts',docId));
+          if(snap.exists()) doubtData = snap.data();
+        }
+        if(!doubtData) {
+          // Search by ticket suffix
+          const snap = await getDocs(collection(db,'sarv_doubts'));
+          const found = snap.docs.find(d => d.id.slice(-6).toUpperCase() === raw);
+          if(found) doubtData = found.data();
+        }
+
+        if(!doubtData) {
+          document.getElementById('trQuestion').textContent = 'Ticket #'+raw+' nahi mila. ID check karo.';
+          document.getElementById('trMeta').textContent = '';
+          document.getElementById('trAnswerBox').className = 'track-answer pending';
+          document.getElementById('trAnswerLabel').textContent = '❌ Not Found';
+          document.getElementById('trAnswerText').textContent = 'Yeh ticket ID galat hai ya abhi save nahi hua.';
+        } else {
+          document.getElementById('trQuestion').textContent = doubtData.question || '';
+          document.getElementById('trMeta').textContent     = 'Class '+doubtData.class+' › '+doubtData.chapter;
+          if(doubtData.status === 'answered' && doubtData.answer) {
+            document.getElementById('trAnswerBox').className    = 'track-answer answered';
+            document.getElementById('trAnswerLabel').textContent = '✅ Answer Aa Gaya!';
+            document.getElementById('trAnswerText').textContent  = doubtData.answer;
+          } else {
+            document.getElementById('trAnswerBox').className    = 'track-answer pending';
+            document.getElementById('trAnswerLabel').textContent = '⏳ Status: Pending';
+            document.getElementById('trAnswerText').textContent  = 'Abhi answer nahi aaya. Thodi der baad check karo!';
+          }
+        }
+      } catch(e) {
+        document.getElementById('trQuestion').textContent = 'Kuch error aaya. Dobara try karo.';
+        document.getElementById('trAnswerBox').className  = 'track-answer pending';
+        document.getElementById('trAnswerLabel').textContent = '❌ Error';
+        document.getElementById('trAnswerText').textContent  = e.message;
+      }
+      trackBtn.disabled = false; trackBtn.textContent = 'Track →';
+    };
+
+    /* ── RESET FORM ── */
+    window.resetForm = () => {
+      ['student_name','question'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('chapter').innerHTML    = '<option value="">Pehle class select karo</option>';
+      document.getElementById('class_select').value   = '';
+      document.getElementById('imgInput').value        = '';
+      document.getElementById('previewImg').src         = '';
+      document.getElementById('imgPreview').style.display   = 'none';
+      document.getElementById('successScreen').style.display = 'none';
+      document.getElementById('foundScreen').style.display   = 'none';
+      document.getElementById('formCard').style.display      = 'block';
+      uploadedImageUrl = null; window.setPriority('normal'); window.scrollTo(0,0);
+    };
+
+    function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  </script>
+
+  <style>
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+    :root{--ink:#0D1A0D;--paper:#F5FAF6;--cream:#E8F0E9;--accent:#CC1A1A;--accent2:#1A6B2E;--muted:#5A6B5A;--border:#C8D8C8;--white:#FFFFFF;--green:#1A6B2E;--green-bg:#E0F0E5}
+    body{font-family:'DM Sans',sans-serif;background:var(--paper);min-height:100vh;color:var(--ink)}
+
+    /* LOGIN */
+    #loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--paper)}
+    .login-card{background:var(--white);border-radius:24px;padding:32px 24px;width:100%;max-width:400px;border:1.5px solid var(--border);box-shadow:0 4px 24px rgba(0,0,0,.06)}
+    .login-logo{display:flex;align-items:center;gap:10px;margin-bottom:24px}
+    .login-logo-box{width:44px;height:44px;background:var(--accent2);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px}
+    .login-title{font-family:'Syne',sans-serif;font-weight:800;font-size:22px;margin-bottom:4px}
+    .login-sub{font-size:13px;color:var(--muted);margin-bottom:24px}
+    .reg-btn{width:100%;padding:15px;background:var(--ink);color:white;border:none;border-radius:14px;font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:all .2s;margin-top:8px}
+    .reg-btn:hover{background:var(--accent2);transform:translateY(-1px)}
+    .reg-btn:disabled{background:#ccc;cursor:not-allowed;transform:none}
+
+    /* APP */
+    #appScreen{display:none}
+    header{background:var(--accent2);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:20}
+    .logo-text{font-family:'Syne',sans-serif;font-weight:800;color:#fff;font-size:18px}
+    .logo-sub-h{font-size:10px;color:rgba(255,255,255,.6);margin-top:-2px}
+    .header-right{display:flex;align-items:center;gap:8px}
+    .nav-tab{display:flex;gap:4px;background:rgba(0,0,0,.3);border-radius:10px;padding:4px}
+    .nav-tab button{padding:7px 14px;border:none;border-radius:7px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:rgba(255,255,255,.6);transition:all .2s}
+    .nav-tab button.active{background:var(--accent);color:white}
+    .header-user{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.1);padding:5px 10px 5px 6px;border-radius:20px;cursor:pointer}
+    .header-avatar{width:24px;height:24px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white}
+    .header-name{font-size:12px;font-weight:600;color:white;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+    main{max-width:560px;margin:0 auto;padding:24px 16px 60px}
+    .hero{position:relative;overflow:hidden;background:var(--ink);border-radius:20px;padding:28px 24px;margin-bottom:20px}
+    .hero-tag{display:inline-block;background:var(--accent);color:white;font-family:'Syne',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:4px 10px;border-radius:4px;margin-bottom:12px}
+    .hero h2{font-family:'Syne',sans-serif;font-weight:800;font-size:26px;color:#fff;line-height:1.2;margin-bottom:8px}
+    .hero p{font-size:13px;color:#aaa;line-height:1.6}
+    .hero-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+    .hero-chip{background:rgba(255,255,255,.08);color:#ccc;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:500}
+    .hero-chip.rc{background:rgba(204,26,26,.15);color:#ff8080}
+
+    .card{background:var(--white);border-radius:20px;padding:24px;border:1.5px solid var(--border);box-shadow:0 2px 12px rgba(0,0,0,.04)}
+    .card-title{font-family:'Syne',sans-serif;font-weight:700;font-size:16px;color:var(--ink);margin-bottom:20px}
+    .form-group{margin-bottom:16px}
+    label{display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}
+    label .req{color:var(--accent)}
+    input,select,textarea{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:12px;font-size:14px;font-family:'DM Sans',sans-serif;color:var(--ink);background:var(--paper);outline:none;transition:all .2s}
+    input:focus,select:focus,textarea:focus{border-color:var(--accent2);background:var(--white);box-shadow:0 0 0 3px rgba(26,107,46,.1)}
+    textarea{resize:vertical;min-height:110px;line-height:1.6}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .priority-row{display:flex;gap:8px}
+    .prio-btn{flex:1;padding:9px;border:1.5px solid var(--border);border-radius:10px;background:var(--paper);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .2s;text-align:center}
+    .prio-btn.active-normal{border-color:var(--accent2);background:#E0F0E5;color:var(--accent2)}
+    .prio-btn.active-urgent{border-color:var(--accent);background:#FDF0EB;color:var(--accent)}
+    .img-upload{border:2px dashed var(--border);border-radius:12px;padding:20px;text-align:center;cursor:pointer;transition:all .2s;background:var(--paper);display:block}
+    .img-upload:hover{border-color:var(--accent2);background:#E0F0E5}
+    .img-upload input{display:none}
+    .img-upload .icon{font-size:26px;margin-bottom:6px}
+    .img-upload p{font-size:12px;color:var(--muted)}
+    #imgPreview{display:none;margin-top:12px}
+    #imgPreview img{width:100%;border-radius:10px;border:1.5px solid var(--border)}
+    .submit-btn{width:100%;padding:15px;background:var(--ink);color:white;border:none;border-radius:14px;font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:4px}
+    .submit-btn:hover{background:var(--accent2);transform:translateY(-1px);box-shadow:0 6px 20px rgba(26,107,46,.3)}
+    .submit-btn:disabled{background:#ccc;cursor:not-allowed;transform:none;box-shadow:none}
+
+    /* FOUND */
+    .found-screen{display:none}
+    .found-hero{background:var(--ink);border-radius:20px;padding:28px 24px;text-align:center;margin-bottom:16px}
+    .found-hero .fi{font-size:48px;margin-bottom:12px}
+    .found-hero h2{font-family:'Syne',sans-serif;font-size:20px;color:white;font-weight:800;margin-bottom:6px}
+    .found-hero p{font-size:12px;color:#aaa}
+    .found-card{background:var(--white);border-radius:18px;border:1.5px solid var(--border);overflow:hidden;margin-bottom:14px}
+    .found-card-head{background:var(--green-bg);padding:12px 18px;border-bottom:1.5px solid #C4E8D4}
+    .found-card-head span{font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px}
+    .found-card-body{padding:16px 18px}
+    .found-q{font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.5;font-style:italic}
+    .found-a{font-size:14px;color:var(--ink);line-height:1.7;font-weight:500}
+    .found-meta{font-size:11px;color:var(--muted);margin-top:10px;padding-top:10px;border-top:1px solid var(--cream)}
+    .found-btns{display:flex;flex-direction:column;gap:10px}
+    .found-yes{width:100%;padding:14px;background:var(--green);color:white;border:none;border-radius:14px;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer}
+    .found-no{width:100%;padding:13px;background:transparent;color:var(--muted);border:1.5px solid var(--border);border-radius:14px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer}
+    .found-no:hover{border-color:var(--accent);color:var(--accent)}
+
+    /* SUCCESS */
+    .success-screen{display:none}
+    .success-hero{background:var(--ink);border-radius:20px;padding:32px 24px;text-align:center;margin-bottom:16px}
+    .success-icon{font-size:52px;margin-bottom:16px}
+    .success-hero h2{font-family:'Syne',sans-serif;font-size:22px;color:white;font-weight:800;margin-bottom:8px}
+    .success-hero p{font-size:13px;color:#aaa}
+    .ticket-card{background:var(--white);border-radius:16px;padding:20px;border:1.5px solid var(--border);margin-bottom:16px}
+    .ticket-num{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--accent);margin-bottom:4px}
+    .ticket-sub{font-size:12px;color:var(--muted);margin-bottom:16px}
+    .ticket-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--cream);font-size:13px}
+    .ticket-row:last-child{border-bottom:none}
+    .t-label{color:var(--muted)}
+    .t-val{font-weight:600;color:var(--ink)}
+    .status-pending{color:#B45309;background:#FEF3C7;padding:2px 8px;border-radius:6px;font-size:11px}
+    .ask-again{width:100%;padding:14px;background:transparent;border:2px solid var(--ink);color:var(--ink);border-radius:14px;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s}
+    .ask-again:hover{background:var(--ink);color:white}
+
+    /* TRACK */
+    #trackSection{display:none}
+    .track-input-row{display:flex;gap:10px;margin-bottom:16px}
+    .track-input-row input{flex:1}
+    .track-btn{padding:12px 20px;background:var(--ink);color:white;border:none;border-radius:12px;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .2s}
+    .track-btn:hover{background:var(--accent2)}
+    .track-btn:disabled{background:#ccc;cursor:not-allowed}
+    .track-result{display:none}
+    .track-question{background:var(--cream);border-radius:14px;padding:16px;margin-bottom:12px}
+    .tq-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+    .tq-text{font-size:14px;color:var(--ink);line-height:1.6}
+    .track-answer{border-radius:14px;padding:16px;margin-bottom:12px}
+    .track-answer.pending{background:#FEF3C7;border:1.5px solid #FCD34D}
+    .track-answer.answered{background:var(--green-bg);border:1.5px solid #A8D5BC}
+    .ta-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+    .pending .ta-label{color:#B45309}
+    .answered .ta-label{color:var(--green)}
+    .ta-text{font-size:14px;line-height:1.6}
+    .pending .ta-text{color:#92400E}
+    .answered .ta-text{color:#065F46}
+
+    /* TOAST */
+    /* MY DOUBTS */
+    .md-card{background:var(--white);border-radius:16px;border:1.5px solid var(--border);padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+    .md-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+    .md-chapter{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+    .md-status{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px}
+    .md-ans{background:#D1FAE5;color:#065F46}
+    .md-pend{background:#FEF3C7;color:#B45309}
+    .md-question{font-size:14px;color:var(--ink);line-height:1.6;margin-bottom:10px;font-weight:500}
+    .md-img{width:100%;border-radius:10px;border:1.5px solid var(--border);margin:8px 0;cursor:pointer;max-height:220px;object-fit:contain}
+    .md-answer-box{background:var(--green-bg);border:1.5px solid #A8D5BC;border-radius:12px;padding:14px;margin-top:10px}
+    .md-ans-label{font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+    .md-ans-text{font-size:14px;color:#065F46;line-height:1.7}
+    .md-pending-msg{font-size:12px;color:#B45309;background:#FEF3C7;border-radius:8px;padding:8px 12px;margin-top:8px;text-align:center}
+    .md-date{font-size:11px;color:var(--muted);margin-top:10px;text-align:right}
+
+
+
+    .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;z-index:200;transition:transform .3s;max-width:90vw;text-align:center}
+    .toast.red{background:#FEF2F2;color:#B91C1C;border:1.5px solid #FCA5A5}
+    .toast.green{background:var(--green-bg);color:var(--green);border:1.5px solid #A8D5BC}
+    .toast.show{transform:translateX(-50%) translateY(0)}
+    @media(max-width:420px){.row{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+
+<!-- ═══ LOGIN SCREEN ═══ -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">
+      <img src="https://i.ibb.co/PGyz2pcw/file-00000000681c720780b961d468bd980f.png" alt="Sarvottam Biology" style="width:44px;height:44px;border-radius:12px;object-fit:cover"/>
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:18px">Sarvottam Biology</div>
+        <div style="font-size:10px;color:var(--muted)">by Dr. Prabhat Ranjan · NEET/Board</div>
+      </div>
+    </div>
+    <div class="login-title">Welcome! 👋</div>
+    <div class="login-sub">Apna naam aur email daalo doubt portal use karne ke liye</div>
+    <div class="form-group">
+      <label>Aapka Naam <span class="req">*</span></label>
+      <input type="text" id="reg-name" placeholder="e.g. Rahul Kumar" onkeydown="if(event.key==='Enter')doStudentLogin()"/>
+    </div>
+    <div class="form-group">
+      <label>Email ID <span class="req">*</span></label>
+      <input type="email" id="reg-email" placeholder="e.g. rahul@gmail.com" onkeydown="if(event.key==='Enter')doStudentLogin()"/>
+    </div>
+    <div class="form-group">
+      <label>WhatsApp Number <span class="req">*</span></label>
+      <input type="tel" id="reg-whatsapp" placeholder="e.g. 9876543210" onkeydown="if(event.key==='Enter')doStudentLogin()"/>
+    </div>
+    <button class="reg-btn" id="reg-btn" onclick="doStudentLogin()">Continue →</button>
+  </div>
+</div>
+
+<!-- ═══ APP SCREEN ═══ -->
+<div id="appScreen">
+<header>
+  <div>
+    <div class="logo-text">Sarvottam Biology <span style="font-size:11px;font-weight:600;opacity:.8">for NEET</span></div>
+    <div class="logo-sub-h">by Dr. Prabhat Ranjan</div>
+  </div>
+  <div class="header-right">
+    <div class="nav-tab">
+      <button class="active" onclick="showSection('ask',this)">Ask</button>
+      <button onclick="showSection('myDoubts',this)">My Doubts</button>
+    </div>
+    <div class="header-user" onclick="doLogout()" title="Logout">
+      <div class="header-avatar">👤</div>
+      <div class="header-name" id="headerStudentName"></div>
+      <span style="font-size:10px;color:rgba(255,255,255,.5);margin-left:2px">✕</span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- ASK SECTION -->
+  <div id="askSection">
+    <div class="hero">
+      <img src="https://i.ibb.co/PGyz2pcw/file-00000000681c720780b961d468bd980f.png" style="position:absolute;right:-10px;bottom:-10px;width:130px;height:130px;object-fit:contain;opacity:0.13;pointer-events:none;border-radius:50%"/>
+      <div class="hero-tag">📚 Doubt Portal</div>
+      <h2>Koi Doubt Hai?<br/>Pooch Lo!</h2>
+      <p>Apna doubt submit karo — Dr. Prabhat Ranjan <strong style="color:#fff">24/7</strong> available hai aapke liye.</p>
+      <div class="hero-chips">
+        <div class="hero-chip rc">⚡ Quick Response</div>
+        <div class="hero-chip">📚 Saved Forever</div>
+      </div>
+    </div>
+
+    <!-- DR. PRABHAT CIRCULAR PHOTO -->
+    <div style="display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:24px">
+      <div style="width:150px;height:150px;border-radius:50%;overflow:hidden;border:5px solid var(--accent2);box-shadow:0 8px 32px rgba(26,107,46,.4);margin-bottom:14px">
+        <img src="https://i.ibb.co/7dFKB7wd/IMG-20260524-WA0005-2.jpg" style="width:100%;height:100%;object-fit:cover;object-position:top center"/>
+      </div>
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:17px;color:var(--ink);letter-spacing:.3px">Dr. Prabhat Ranjan</div>
+      <div style="font-size:12px;font-weight:600;color:var(--accent2);margin-top:3px">Biology Faculty — NEET/Board</div>
+    </div>
+
+    <div class="card" id="formCard">
+      <div class="card-title">📝 Submit Your Doubt</div>
+      <div class="form-group">
+        <label>Your Name <span class="req">*</span></label>
+        <input type="text" id="student_name" placeholder="e.g. Rahul Kumar"/>
+      </div>
+      <div class="row">
+        <div class="form-group">
+          <label>Class <span class="req">*</span></label>
+          <select id="class_select" onchange="updateChapters()">
+            <option value="">Select Class</option>
+            <option value="11">Class 11th</option>
+            <option value="12">Class 12th</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Subject</label>
+          <div style="padding:12px 14px;border:1.5px solid var(--border);border-radius:12px;background:var(--green-bg);color:var(--green);font-weight:700;font-size:14px;">
+            🧬 Biology
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Chapter <span class="req">*</span></label>
+        <select id="chapter">
+          <option value="">Pehle class select karo</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Priority</label>
+        <div class="priority-row">
+          <button class="prio-btn active-normal" id="pNormal" onclick="setPriority('normal')">📘 Normal</button>
+          <button class="prio-btn" id="pUrgent" onclick="setPriority('urgent')">🔥 Urgent</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Your Question <span class="req">*</span></label>
+        <textarea id="question" placeholder="Apna doubt clearly likho..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Attach Image <span style="color:var(--muted);font-weight:400;text-transform:none">(optional)</span></label>
+        <label class="img-upload" for="imgInput">
+          <div class="icon">📷</div>
+          <p><strong>Tap to upload</strong> a photo</p>
+          <p style="margin-top:4px;font-size:11px">JPG, PNG supported</p>
+          <input type="file" id="imgInput" accept="image/*" onchange="previewImage(this)"/>
+        </label>
+        <div id="imgPreview"><img id="previewImg" src="" alt=""/></div>
+      </div>
+      <button class="submit-btn" id="submitBtn" onclick="submitDoubt()"><span id="btnText">🚀 Submit My Doubt</span></button>
+    </div>
+
+    <!-- DUPLICATE FOUND -->
+    <div class="found-screen" id="foundScreen">
+      <div class="found-hero">
+        <div class="fi">💡</div>
+        <h2>Yeh Answer Pehle Se Hai!</h2>
+        <p>Kisi aur ne same doubt pucha tha — check karo kya help hoga</p>
+      </div>
+      <div class="found-card">
+        <div class="found-card-head"><span>✅ Pehle Answer Ho Chuka</span></div>
+        <div class="found-card-body">
+          <div class="found-q" id="foundQ"></div>
+          <div class="found-a" id="foundA"></div>
+          <div class="found-meta" id="foundMeta"></div>
+        </div>
+      </div>
+      <div class="found-btns">
+        <button class="found-yes" onclick="foundHelped()">✅ Haan, help ho gaya!</button>
+        <button class="found-no" onclick="foundNotHelped()">🔄 Nahi, mera doubt alag hai — phir bhi submit karo</button>
+      </div>
+    </div>
+
+    <!-- SUCCESS -->
+    <div class="success-screen" id="successScreen">
+      <div class="success-hero">
+        <div class="success-icon">✅</div>
+        <h2>Doubt Submit Ho Gaya!</h2>
+        <p>Teacher ko notify kar diya gaya hai — jaldi answer aayega 🙏</p>
+      </div>
+      <div class="ticket-card">
+        <div class="ticket-num" id="ticketNum">#------</div>
+        <div class="ticket-sub">Yeh ticket ID save karo — “My Doubts” tab mein answer dikhega</div>
+        <div id="ticketDetails"></div>
+      </div>
+      <button class="ask-again" onclick="resetForm()">+ Aur Doubt Poochna Hai</button>
+    </div>
+  </div>
+
+  <!-- MY DOUBTS SECTION -->
+  <div id="myDoubtsSection" style="display:none">
+    <div class="hero" style="margin-bottom:20px">
+      <div class="hero-tag">📚 My Doubts</div>
+      <h2>Tumhare Saare<br/>Doubts</h2>
+      <p>Real-time update — jaise hi teacher answer de, yahan dikh jayega ✅</p>
+    </div>
+    <div id="myDoubtsList"><div style="text-align:center;padding:40px 20px;color:var(--muted)">Loading...</div></div>
+  </div>
+</main>
+</div><!-- end appScreen -->
+
+
+
+<div class="toast" id="toast"></div>
+<script>
+  function showToast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast '+type+' show';setTimeout(()=>t.classList.remove('show'),3500);}
+</script>
+<!-- start webpushr tracking code -->
+<script>(function(w,d, s, id) {if(typeof(w.webpushr)!=='undefined') return;w.webpushr=w.webpushr||function(){(w.webpushr.q=w.webpushr.q||[]).push(arguments)};var js, fjs = d.getElementsByTagName(s)[0];js = d.createElement(s); js.id = id;js.async=1;js.src = "https://cdn.webpushr.com/app.min.js";
+fjs.parentNode.appendChild(js);}(window,document, 'script', 'webpushr-jssdk'));
+webpushr('setup',{'key':'BO5umfunyiA1yduicQEJ5vYJXw61pWkBWGZLrhGfWCAm_vNxS1lExoPKMgXfN9jJPtZY-79FUOtShfHApOHKWbA','sw':'/Sarvottam-student-/webpushr-sw.js'});</script>
+<!-- end webpushr tracking code -->
+</body>
+</html>
