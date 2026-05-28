@@ -82,8 +82,23 @@ self.addEventListener('notificationclick',e=>{
       document.getElementById('appScreen').style.display   = 'block';
       document.getElementById('student_name').value        = student.name;
       document.getElementById('headerStudentName').textContent = student.name;
-      // Webpushr subscribe
-      if(typeof webpushr !== 'undefined'){ try { webpushr('subscribe',{}); } catch(e) {} }
+      // Webpushr subscribe + tag as student
+      if(typeof webpushr !== 'undefined'){
+        try {
+          webpushr('subscribe',{});
+          setTimeout(()=>{
+            webpushr('fetch', function(sub){
+              if(sub && sub.sid){
+                fetch('https://api.webpushr.com/v1/subscriber/attribute/set',{
+                  method:'POST',
+                  headers:{'Content-Type':'application/json','webpushrKey':'1978c6f0d860f9c6069c8166df1a0e92','webpushrAuthToken':'121605'},
+                  body: JSON.stringify({sid: sub.sid, attribute:'role', value:'student'})
+                }).catch(()=>{});
+              }
+            });
+          }, 3000);
+        } catch(e) {}
+      }
       loadMyDoubts();
     }
 
@@ -223,7 +238,7 @@ self.addEventListener('notificationclick',e=>{
     async function notifyTeacher(studentName, chapter, question, prio) {
       try {
         const prioText = prio === 'urgent' ? '🔥 URGENT' : '📘 Normal';
-        await fetch('https://api.webpushr.com/v1/notification/send/all', {
+        await fetch('https://api.webpushr.com/v1/notification/send/filter', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -234,7 +249,8 @@ self.addEventListener('notificationclick',e=>{
             title: `${prioText} — Naya Doubt Aaya!`,
             message: `${studentName} · ${chapter} — "${question.slice(0,80)}${question.length>80?'...':''}"`,
             target_url: 'https://doubtbox94-boop.github.io/Sarvottam-panel/',
-            icon: 'https://i.ibb.co/PGyz2pcw/file-00000000681c720780b961d468bd980f.png'
+            icon: 'https://i.ibb.co/PGyz2pcw/file-00000000681c720780b961d468bd980f.png',
+            filter: JSON.stringify([{"attribute":"role","operator":"eq","value":"teacher"}])
           })
         });
       } catch(e) { console.log('Webpushr notify failed:', e); }
